@@ -1,0 +1,760 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Pixel Shooter - Boss & Ultimate</title>
+
+<style>
+    * {
+        box-sizing: border-box;
+    }
+
+    body {
+        margin: 0;
+        overflow: hidden;
+        background: #101018;
+        font-family: monospace;
+        color: white;
+    }
+
+    canvas {
+        display: block;
+        background:
+            linear-gradient(#151525, #08080f);
+        image-rendering: pixelated;
+    }
+
+
+    #ui {
+        position: fixed;
+        top: 15px;
+        left: 15px;
+        z-index: 5;
+        font-size: 18px;
+        line-height: 1.7;
+        text-shadow: 2px 2px #000;
+    }
+
+    #gameOver {
+        display: none;
+        position: fixed;
+        inset: 0;
+        background: rgba(0,0,0,.75);
+        justify-content: center;
+        align-items: center;
+        flex-direction: column;
+        z-index: 10;
+    }
+
+    #gameOver h1 {
+        color: #ff4d4d;
+        font-size: 50px;
+        margin: 10px;
+    }
+
+    button {
+        padding: 12px 25px;
+        font-family: monospace;
+        font-size: 18px;
+        cursor: pointer;
+        border: 3px solid white;
+        background: #222;
+        color: white;
+    }
+
+    button:hover {
+        background: #444;
+    }
+</style>
+</head>
+
+<body>
+
+<div id="ui">
+    ❤️ HP: <span id="hp">100</span><br>
+    🎯 Score: <span id="score">0</span><br>
+    👾 Kill: <span id="kills">0</span>/15<br>
+    ⚡ Ulti: <span id="ulti">BELUM SIAP</span>
+</div>
+
+<canvas id="game"></canvas>
+
+<div id="gameOver">
+    <h1>GAME OVER</h1>
+    <p>Score: <span id="finalScore">0</span></p>
+    <button onclick="restartGame()">MAIN LAGI</button>
+</div>
+
+<script>
+const canvas = document.getElementById("game");
+const ctx = canvas.getContext("2d");
+
+canvas.width = window.innerWidth;
+canvas.height = window.innerHeight;
+
+let keys = {};
+let bullets = [];
+let enemies = [];
+let particles = [];
+
+let score = 0;
+let kills = 0;
+let ultiReady = false;
+let gameRunning = true;
+
+let boss = null;
+
+const player = {
+    x: canvas.width / 2,
+    y: canvas.height / 2,
+    size: 24,
+    speed: 5,
+    hp: 100
+};
+
+/* =========================
+   KEYBOARD
+========================= */
+
+document.addEventListener("keydown", e => {
+    keys[e.key.toLowerCase()] = true;
+
+    // Klik keyboard E juga bisa memakai ulti
+    if (e.key.toLowerCase() === "e") {
+        useUltimate();
+    }
+});
+
+document.addEventListener("keyup", e => {
+    keys[e.key.toLowerCase()] = false;
+});
+
+/* =========================
+   MOUSE
+========================= */
+
+let mouse = {
+    x: canvas.width / 2,
+    y: canvas.height / 2
+};
+
+canvas.addEventListener("mousemove", e => {
+    mouse.x = e.clientX;
+    mouse.y = e.clientY;
+});
+
+// Klik kanan = tembak
+canvas.addEventListener("contextmenu", e => {
+    e.preventDefault();
+});
+
+canvas.addEventListener("mousedown", e => {
+
+    if (e.button === 2) {
+        shoot();
+    }
+
+    // Klik kiri = ulti
+    if (e.button === 0) {
+        useUltimate();
+    }
+});
+
+/* =========================
+   PLAYER MOVEMENT
+========================= */
+
+function movePlayer() {
+
+    if (keys["w"]) player.y -= player.speed;
+    if (keys["s"]) player.y += player.speed;
+    if (keys["a"]) player.x -= player.speed;
+    if (keys["d"]) player.x += player.speed;
+
+    player.x = Math.max(15, Math.min(canvas.width - 15, player.x));
+    player.y = Math.max(15, Math.min(canvas.height - 15, player.y));
+}
+
+/* =========================
+   SHOOT
+========================= */
+
+function shoot() {
+
+    if (!gameRunning) return;
+
+    const dx = mouse.x - player.x;
+    const dy = mouse.y - player.y;
+
+    const distance = Math.hypot(dx, dy);
+
+    bullets.push({
+        x: player.x,
+        y: player.y,
+        dx: dx / distance * 10,
+        dy: dy / distance * 10,
+        size: 6,
+        life: 80,
+        damage: 25
+    });
+}
+
+/* =========================
+   ULTIMATE
+========================= */
+
+function useUltimate() {
+
+    if (!ultiReady || !gameRunning) return;
+
+    ultiReady = false;
+
+    document.getElementById("ulti").textContent = "BELUM SIAP";
+
+    const totalBullets = 32;
+
+    for (let i = 0; i < totalBullets; i++) {
+
+        const angle = (Math.PI * 2 / totalBullets) * i;
+
+        bullets.push({
+            x: player.x,
+            y: player.y,
+            dx: Math.cos(angle) * 8,
+            dy: Math.sin(angle) * 8,
+            size: 7,
+            life: 90,
+            damage: 50,
+            ultimate: true
+        });
+    }
+
+    // efek ledakan
+    for (let i = 0; i < 40; i++) {
+        createParticle(
+            player.x,
+            player.y,
+            "#ffff00"
+        );
+    }
+}
+
+/* =========================
+   ENEMY
+========================= */
+
+function spawnEnemy() {
+
+    const side = Math.floor(Math.random() * 4);
+
+    let x, y;
+
+    if (side === 0) {
+        x = Math.random() * canvas.width;
+        y = -30;
+    }
+
+    if (side === 1) {
+        x = canvas.width + 30;
+        y = Math.random() * canvas.height;
+    }
+
+    if (side === 2) {
+        x = Math.random() * canvas.width;
+        y = canvas.height + 30;
+    }
+
+    if (side === 3) {
+        x = -30;
+        y = Math.random() * canvas.height;
+    }
+
+    enemies.push({
+        x: x,
+        y: y,
+        size: 22,
+        speed: 1.5 + Math.random() * 1.2,
+        hp: 50
+    });
+}
+
+/* =========================
+   BOSS
+========================= */
+
+function spawnBoss() {
+
+    if (boss !== null) return;
+
+    boss = {
+        x: canvas.width / 2,
+        y: 100,
+        size: 60,
+        speed: 0.8,
+        hp: 500,
+        maxHp: 500
+    };
+
+    alert("👹 BOSS MUNCUL!");
+}
+
+/* =========================
+   PARTICLE
+========================= */
+
+function createParticle(x, y, color) {
+
+    particles.push({
+        x: x,
+        y: y,
+        dx: (Math.random() - 0.5) * 6,
+        dy: (Math.random() - 0.5) * 6,
+        life: 30,
+        color: color
+    });
+}
+
+/* =========================
+   UPDATE
+========================= */
+
+function update() {
+
+    if (!gameRunning) return;
+
+    movePlayer();
+
+    /* BULLETS */
+
+    bullets.forEach((b, index) => {
+
+        b.x += b.dx;
+        b.y += b.dy;
+        b.life--;
+
+        if (
+            b.x < 0 ||
+            b.x > canvas.width ||
+            b.y < 0 ||
+            b.y > canvas.height ||
+            b.life <= 0
+        ) {
+            bullets.splice(index, 1);
+        }
+    });
+
+    /* ENEMIES */
+
+    enemies.forEach((enemy, eIndex) => {
+
+        const dx = player.x - enemy.x;
+        const dy = player.y - enemy.y;
+
+        const distance = Math.hypot(dx, dy);
+
+        enemy.x += dx / distance * enemy.speed;
+        enemy.y += dy / distance * enemy.speed;
+
+        // menyentuh player
+        if (distance < enemy.size + player.size) {
+
+            player.hp -= 0.5;
+
+            if (player.hp <= 0) {
+                endGame();
+            }
+        }
+
+        /* bullet collision */
+
+        bullets.forEach((b, bIndex) => {
+
+            const d = Math.hypot(
+                b.x - enemy.x,
+                b.y - enemy.y
+            );
+
+            if (d < enemy.size + b.size) {
+
+                enemy.hp -= b.damage;
+
+                bullets.splice(bIndex, 1);
+
+                createParticle(
+                    enemy.x,
+                    enemy.y,
+                    "#ff5555"
+                );
+
+                if (enemy.hp <= 0) {
+
+                    enemies.splice(eIndex, 1);
+
+                    score += 10;
+                    kills++;
+
+                    if (kills >= 15) {
+                        kills = 0;
+                        ultiReady = true;
+
+                        document.getElementById("ulti").textContent =
+                            "SIAP! KLIK KIRI / E";
+                    }
+
+                    // setiap kelipatan 15 kill
+                    if (score % 150 === 0) {
+                        spawnBoss();
+                    }
+                }
+            }
+        });
+    });
+
+    /* BOSS */
+
+    if (boss !== null) {
+
+        const dx = player.x - boss.x;
+        const dy = player.y - boss.y;
+
+        const distance = Math.hypot(dx, dy);
+
+        boss.x += dx / distance * boss.speed;
+        boss.y += dy / distance * boss.speed;
+
+        if (distance < boss.size + player.size) {
+            player.hp -= 1;
+
+            if (player.hp <= 0) {
+                endGame();
+            }
+        }
+
+        bullets.forEach((b, bIndex) => {
+
+            const d = Math.hypot(
+                b.x - boss.x,
+                b.y - boss.y
+            );
+
+            if (d < boss.size + b.size) {
+
+                boss.hp -= b.damage;
+
+                bullets.splice(bIndex, 1);
+
+                createParticle(
+                    boss.x,
+                    boss.y,
+                    "#ff9900"
+                );
+
+                if (boss.hp <= 0) {
+
+                    score += 100;
+
+                    for (let i = 0; i < 50; i++) {
+                        createParticle(
+                            boss.x,
+                            boss.y,
+                            "#ff9900"
+                        );
+                    }
+
+                    boss = null;
+                }
+            }
+        });
+    }
+
+    /* PARTICLES */
+
+    particles.forEach((p, index) => {
+
+        p.x += p.dx;
+        p.y += p.dy;
+        p.life--;
+
+        if (p.life <= 0) {
+            particles.splice(index, 1);
+        }
+    });
+
+    /* SPAWN ENEMY */
+
+    if (Math.random() < 0.025) {
+        spawnEnemy();
+    }
+
+    /* UI */
+
+    document.getElementById("hp").textContent =
+        Math.max(0, Math.floor(player.hp));
+
+    document.getElementById("score").textContent = score;
+
+    document.getElementById("kills").textContent = kills;
+}
+
+/* =========================
+   DRAW
+========================= */
+
+function draw() {
+
+    ctx.clearRect(
+        0,
+        0,
+        canvas.width,
+        canvas.height
+    );
+
+    /* GRID */
+
+    ctx.strokeStyle = "#202030";
+    ctx.lineWidth = 1;
+
+    for (let x = 0; x < canvas.width; x += 40) {
+        ctx.beginPath();
+        ctx.moveTo(x, 0);
+        ctx.lineTo(x, canvas.height);
+        ctx.stroke();
+    }
+
+    for (let y = 0; y < canvas.height; y += 40) {
+        ctx.beginPath();
+        ctx.moveTo(0, y);
+        ctx.lineTo(0 + canvas.width, y);
+        ctx.stroke();
+    }
+
+    /* BACKGROUND MAP TITLE */
+    ctx.save();
+    ctx.globalAlpha = 0.10;
+    ctx.fillStyle = "#ffffff";
+    ctx.font = "bold 110px monospace";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText("DorDorGameV2", canvas.width / 2, canvas.height / 2);
+    ctx.restore();
+
+    /* PLAYER */
+
+    ctx.fillStyle = "#00ffff";
+
+    ctx.fillRect(
+        player.x - 12,
+        player.y - 12,
+        24,
+        24
+    );
+
+    // kepala
+    ctx.fillStyle = "#ffffff";
+
+    ctx.fillRect(
+        player.x - 7,
+        player.y - 8,
+        14,
+        10
+    );
+
+    // senjata
+    ctx.fillStyle = "#ffff00";
+
+    const angle = Math.atan2(
+        mouse.y - player.y,
+        mouse.x - player.x
+    );
+
+    ctx.save();
+
+    ctx.translate(player.x, player.y);
+    ctx.rotate(angle);
+
+    ctx.fillRect(
+        5,
+        -3,
+        22,
+        6
+    );
+
+    ctx.restore();
+
+    /* BULLETS */
+
+    bullets.forEach(b => {
+
+        ctx.fillStyle =
+            b.ultimate ? "#ffff00" : "#ffffff";
+
+        ctx.fillRect(
+            b.x - b.size / 2,
+            b.y - b.size / 2,
+            b.size,
+            b.size
+        );
+    });
+
+    /* ENEMIES */
+
+    enemies.forEach(enemy => {
+
+        ctx.fillStyle = "#ff3333";
+
+        ctx.fillRect(
+            enemy.x - enemy.size / 2,
+            enemy.y - enemy.size / 2,
+            enemy.size,
+            enemy.size
+        );
+
+        ctx.fillStyle = "#111";
+
+        ctx.fillRect(
+            enemy.x - 7,
+            enemy.y - 5,
+            5,
+            5
+        );
+
+        ctx.fillRect(
+            enemy.x + 2,
+            enemy.y - 5,
+            5,
+            5
+        );
+    });
+
+    /* BOSS */
+
+    if (boss !== null) {
+
+        ctx.fillStyle = "#8b00ff";
+
+        ctx.fillRect(
+            boss.x - boss.size / 2,
+            boss.y - boss.size / 2,
+            boss.size,
+            boss.size
+        );
+
+        ctx.fillStyle = "#ff0000";
+
+        ctx.fillRect(
+            boss.x - 20,
+            boss.y - 10,
+            12,
+            12
+        );
+
+        ctx.fillRect(
+            boss.x + 8,
+            boss.y - 10,
+            12,
+            12
+        );
+
+        // Boss HP background
+        ctx.fillStyle = "#222";
+
+        ctx.fillRect(
+            boss.x - 50,
+            boss.y - 50,
+            100,
+            8
+        );
+
+        // Boss HP
+        ctx.fillStyle = "#00ff00";
+
+        ctx.fillRect(
+            boss.x - 50,
+            boss.y - 50,
+            100 * (boss.hp / boss.maxHp),
+            8
+        );
+    }
+
+    /* PARTICLES */
+
+    particles.forEach(p => {
+
+        ctx.fillStyle = p.color;
+
+        ctx.fillRect(
+            p.x,
+            p.y,
+            5,
+            5
+        );
+    });
+}
+
+/* =========================
+   GAME LOOP
+========================= */
+
+function gameLoop() {
+
+    update();
+    draw();
+
+    requestAnimationFrame(gameLoop);
+}
+
+/* =========================
+   GAME OVER
+========================= */
+
+function endGame() {
+
+    gameRunning = false;
+
+    document.getElementById("finalScore").textContent = score;
+
+    document.getElementById("gameOver").style.display =
+        "flex";
+}
+
+/* =========================
+   RESTART
+========================= */
+
+function restartGame() {
+
+    score = 0;
+    kills = 0;
+    ultiReady = false;
+
+    player.hp = 100;
+
+    player.x = canvas.width / 2;
+    player.y = canvas.height / 2;
+
+    bullets = [];
+    enemies = [];
+    particles = [];
+
+    boss = null;
+
+    document.getElementById("ulti").textContent =
+        "BELUM SIAP";
+
+    document.getElementById("gameOver").style.display =
+        "none";
+
+    gameRunning = true;
+}
+
+/* =========================
+   START
+========================= */
+
+gameLoop();
+
+</script>
+
+</body>
+</html>
